@@ -39,14 +39,9 @@
 
 ## Virtual memory overview
 
-* today's problem:
-  - [user/kernel diagram]
-  - [memory view: diagram with user processes and kernel in memory]
-  - suppose the shell【外壳】 has a bug:
-    sometimes it writes to a random memory address,
-  how can we keep it from wrecking the kernel【内核】?
-    and from wrecking other processes?
+* 在现代的操作系统中，为了让其他的程序能方便的运行在操作系统上，需要完成的一个很重要的抽象是「每个程序有自己的地址空间，且地址空间范围是一样的」，这将会减少了上层程序的大量麻烦，否则程序本身要维护自己需要的物理内存，这也会导致极大程度的不安全。
 
+这个执行上看到的地址空间，就是虚拟内存。而访问虚拟内存的地址就是虚拟地址（Virtual Address），与之对应的是物理地址（Physical Address）。这样的设计会导致上层的应用程序可能会访问同一个值相等的虚拟地址，所以操作系统需要做的就是替这些程序维护这个虚拟地址到物理地址的映射。甚者，为了统一和连贯，内核自己本身访问内存也将会通过虚拟地址。
 
 ---------------------------------------------------------
 * we want isolated address spaces【**隔离地址空间**】
@@ -109,8 +104,6 @@
     - 只需要几百个page的映射
     - 因此，其余的100万个entry将在那里但不需要
 ---------------------------------------------------------
-![Figure 3.2](img/Figure3.2.png)
-
 * RISC-V 64 uses a "three-level page table" to save space
   - see figure 3.2 from book
   - page directory page (PD)
@@ -128,13 +121,20 @@
   - 页可以在RAM中的任何位置-不必连续
   - 切换到另一个地址空间/应用程序时重写satp
 ---------------------------------------------------------
+![Figure 3.2](img/Figure3.2.png)
+
 * how does RISC-V paging hardware translate a va?
-  - 找到正确的page table入口
-  - satp寄存器要指向L2 的page table 的物理地址
-  - L2 Pd的前9位索引获得 L1 Pd 的 物理地址
-  - 接下来，L1 Pd的9位索引获得 L0 Pd 的 物理地址
-  - 接下来，L0 Pd的9位索引获得 PTE 的 物理地址
-  - PPN = PTE + VA的后12位offset
+  - 具体来说，假设我们有虚拟地址 (VPN2, VPN1, VPN0, offset)：
+  - 我们首先会记录装载「当前所用的三级页表的物理页」的页号到 satp 寄存器中；
+  - 把VPN2作为偏移，在三级页表的物理页中找到第二级页表的物理页号；
+  - 把VPN1作为偏移在二级页表的物理页中找到第一级页表的物理页号；
+  - 把VPN0作为偏移在一级页表的物理页中找到要访问位置的物理页号；
+  - 物理页号对应的物理页基址加上 offset 就是虚拟地址对应的物理地址。
+
+我们通过这种复杂的手段，终于从虚拟页号找到了一级页表项，从而得出了物理页号。刚才我们提到若页表项满足 R,W,X 都为 0，表明这个页表项指向下一级页表。在这里三级和二级页表项的 R,W,X 为 0 应该成立，因为它们指向了下一级页表。
+
+然而三级和二级页表项不一定要指向下一级页表。我们知道每个一级页表项控制一个虚拟页号，即控制 4KB 虚拟内存；每个二级页表项则控制 9 位虚拟页号，总计控制`4KB×2^9=2MB` 虚拟内存；每个三级页表项控制 18 位虚拟页号，总计控制`2MB×2^9=1GB` 虚拟内存。我们可以将二级页表项的 R,W,X 设置为不是全 0 的，那么它将与一级页表项类似，只不过可以映射一个 2MB 的大页（Huge Page）。同理，也可以将三级页表项看作一个叶子，来映射一个 1GB 的大页。这样在 RISC-V 中，可以很方便地建立起大页机制。
+
 ---------------------------------------------------------
 * flags in PTE
   - V, R, W, X, U
